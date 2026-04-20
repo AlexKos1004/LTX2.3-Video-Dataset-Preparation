@@ -34,11 +34,13 @@ def probe_video(path: str | Path) -> VideoMetadata:
     source = Path(path)
     if not source.exists():
         raise FileNotFoundError(str(source))
+    if not source.is_file():
+        raise VideoProbeError(f"Selected path is not a file: {source}")
 
     cmd = [
         resolve_binary("ffprobe"),
         "-v",
-        "quiet",
+        "error",
         "-print_format",
         "json",
         "-show_streams",
@@ -65,9 +67,19 @@ def probe_video(path: str | Path) -> VideoMetadata:
             f"Details: {stderr or 'unknown ffprobe error'}"
         ) from exc
 
+    raw_output = result.stdout
+    if not raw_output:
+        # Some ffprobe builds may emit json to stderr even with -print_format json.
+        raw_output = result.stderr
+    if not raw_output:
+        raise VideoProbeError(
+            "ffprobe returned empty metadata output.\n"
+            f"Source: {source}\n"
+            "Please verify the selected video file and ffprobe build."
+        )
     try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
+        payload = json.loads(raw_output)
+    except (json.JSONDecodeError, TypeError) as exc:
         raise VideoProbeError("ffprobe returned invalid metadata output.") from exc
     video_stream = next(
         (stream for stream in payload.get("streams", []) if stream.get("codec_type") == "video"),

@@ -27,7 +27,7 @@ class ExportDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Export")
-        self.resize(520, 180)
+        self.resize(520, 250)
 
         self.output_folder_edit = QLineEdit(self)
         self.output_folder_edit.setReadOnly(True)
@@ -42,6 +42,13 @@ class ExportDialog(QDialog):
                 self.captions_location_combo.setCurrentIndex(idx)
                 break
 
+        self.frames_combo = QComboBox(self)
+        for fps in (9, 17, 25):
+            self.frames_combo.addItem(str(fps), userData=fps)
+        self.frames_combo.setCurrentIndex(1)
+        self.frames_example_label = QLabel("", self)
+        self._update_frames_example_label()
+
         folder_row = QHBoxLayout()
         folder_row.addWidget(self.output_folder_edit)
         folder_row.addWidget(self.output_folder_button)
@@ -49,6 +56,8 @@ class ExportDialog(QDialog):
         form = QFormLayout()
         form.addRow("Output folder:", folder_row)
         form.addRow("Captions location:", self.captions_location_combo)
+        form.addRow("Frames per second (8n+1):", self.frames_combo)
+        form.addRow("Example for 5s clip:", self.frames_example_label)
 
         form_container = QWidget(self)
         form_container.setLayout(form)
@@ -73,4 +82,18 @@ class ExportDialog(QDialog):
         self.output_folder_button.clicked.connect(self.choose_output_folder)
         self.export_button.clicked.connect(self.export_requested)
         self.cancel_button.clicked.connect(self.reject)
+        self.frames_combo.currentIndexChanged.connect(self._update_frames_example_label)
+
+    def selected_fps(self) -> int:
+        value = self.frames_combo.currentData()
+        if isinstance(value, int):
+            return value
+        try:
+            return int(self.frames_combo.currentText().strip())
+        except Exception:
+            return 17
+
+    def _update_frames_example_label(self) -> None:
+        fps = self.selected_fps()
+        self.frames_example_label.setText(f"{fps * 5} frames (fps x duration)")
 

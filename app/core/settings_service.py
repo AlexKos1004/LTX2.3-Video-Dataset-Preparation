@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import json
 
@@ -21,6 +21,7 @@ class UserSettings:
     timeline_dock_visible: bool = True
     workspace_splitter_state_b64: str = ""
     volume_percent: int = 100
+    hotkeys: dict[str, str] = field(default_factory=dict)
 
 
 class SettingsService:
@@ -50,6 +51,7 @@ class SettingsService:
             timeline_dock_visible=bool(payload.get("timeline_dock_visible", True)),
             workspace_splitter_state_b64=payload.get("workspace_splitter_state_b64", ""),
             volume_percent=int(payload.get("volume_percent", 100)),
+            hotkeys=dict(payload.get("hotkeys", {})),
         )
 
     def save(self, settings: UserSettings) -> None:
@@ -71,6 +73,7 @@ class SettingsService:
                     "timeline_dock_visible": settings.timeline_dock_visible,
                     "workspace_splitter_state_b64": settings.workspace_splitter_state_b64,
                     "volume_percent": settings.volume_percent,
+                    "hotkeys": settings.hotkeys,
                 },
                 ensure_ascii=True,
                 indent=2,

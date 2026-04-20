@@ -231,6 +231,7 @@ class PreviewPlayer(QWidget):
         super().__init__(parent)
         self._icons = self._load_icons()
         self._prime_preview_pending = False
+        self._requested_position_ms = 0
         self._poster_original_pixmap: QPixmap | None = None
         self._slider_was_playing_before_seek = False
         self.setAcceptDrops(True)
@@ -301,12 +302,38 @@ class PreviewPlayer(QWidget):
 
     def load_video(self, path: str) -> None:
         self._prime_preview_pending = True
+        self._requested_position_ms = 0
+        self.seek_slider.blockSignals(True)
+        self.seek_slider.setValue(0)
+        self.seek_slider.blockSignals(False)
         self._show_video_widget()
         self.media_player.setSource(QUrl.fromLocalFile(str(Path(path))))
         self.crop_overlay.raise_()
 
+    def clear(self) -> None:
+        self.media_player.stop()
+        self.media_player.setSource(QUrl())
+        self._prime_preview_pending = False
+        self._requested_position_ms = 0
+        self._poster_original_pixmap = None
+        self.seek_slider.blockSignals(True)
+        self.seek_slider.setRange(0, 0)
+        self.seek_slider.setValue(0)
+        self.seek_slider.blockSignals(False)
+        self.poster_label.setPixmap(QPixmap())
+        self.poster_label.setText("No preview frame")
+        self.video_stack.setCurrentWidget(self.poster_label)
+        self.crop_overlay.set_source_size(0, 0)
+        self.crop_overlay.set_crop_size(0, 0)
+        self._update_time_label()
+
     def set_position_seconds(self, seconds: float) -> None:
-        self.media_player.setPosition(int(seconds * 1000))
+        position_ms = max(0, int(seconds * 1000))
+        self._requested_position_ms = position_ms
+        self.seek_slider.blockSignals(True)
+        self.seek_slider.setValue(position_ms)
+        self.seek_slider.blockSignals(False)
+        self.media_player.setPosition(position_ms)
 
     def current_position_seconds(self) -> float:
         return self.media_player.position() / 1000.0
@@ -327,6 +354,7 @@ class PreviewPlayer(QWidget):
         return self.crop_overlay.current_crop_rect()
 
     def _on_position_changed(self, millis: int) -> None:
+        self._requested_position_ms = max(0, int(millis))
         self.seek_slider.blockSignals(True)
         self.seek_slider.setValue(millis)
         self.seek_slider.blockSignals(False)
@@ -347,8 +375,9 @@ class PreviewPlayer(QWidget):
             QMediaPlayer.MediaStatus.BufferedMedia,
         }:
             # Avoid play/pause in status callback (can freeze some backends).
-            # Seek to first frame asynchronously after media is ready.
-            QTimer.singleShot(0, lambda: self.media_player.setPosition(0))
+            # Seek asynchronously after media is ready.
+            initial_pos = max(0, int(self._requested_position_ms))
+            QTimer.singleShot(0, lambda p=initial_pos: self.media_player.setPosition(p))
             self._prime_preview_pending = False
 
     def show_poster_frame(self, image_path: str | Path) -> None:
@@ -387,10 +416,16 @@ class PreviewPlayer(QWidget):
         self._slider_was_playing_before_seek = False
 
     def _toggle_play_pause(self) -> None:
+        source = self.media_player.source()
+        if not source.isValid() or source.isEmpty() or self.media_player.duration() <= 0:
+            return
         if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.media_player.pause()
             self.pause_requested_at_seconds.emit(self.current_position_seconds())
             return
+        desired_pos = max(0, int(self.seek_slider.value()))
+        if abs(self.media_player.position() - desired_pos) > 120:
+            self.media_player.setPosition(desired_pos)
         self._show_video_widget()
         self.media_player.play()
 

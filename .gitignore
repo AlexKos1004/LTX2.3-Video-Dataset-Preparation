@@ -51,7 +51,5 @@ captions/
 *.mkv
 *.avi
 *.webm
+TECHNICAL_DOCUMENTATION.md
 
-# Local sample/project data
-test1.json
-asmrmood_test1.json

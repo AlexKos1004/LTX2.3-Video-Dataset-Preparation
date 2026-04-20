@@ -5,7 +5,6 @@ from pathlib import Path
 import subprocess
 
 from app.core.caption_writer import write_caption_txt
-from app.core.clip_rules import normalize_8n_plus_1
 from app.core.ffmpeg_locator import build_subprocess_env, resolve_binary
 
 
@@ -27,6 +26,7 @@ class ExportRequest:
     resize_height: int
     tags_line: str
     captions_mode: str
+    forced_fps: int | None = None
 
 
 @dataclass
@@ -55,10 +55,8 @@ class ExportPipeline:
         output_dir.mkdir(parents=True, exist_ok=True)
         output_video = output_dir / f"{job.clip_name}.mp4"
 
-        desired_frames = int(round(job.duration_seconds * job.fps))
-        valid_frames = normalize_8n_plus_1(desired_frames, mode="floor")
-        valid_duration = max(valid_frames / max(job.fps, 1e-9), 1 / max(job.fps, 1e-9))
-
+        output_fps = int(job.forced_fps) if job.forced_fps is not None else int(round(job.fps))
+        output_fps = max(1, output_fps)
         filters: list[str] = []
         if job.resize_width > 0 and job.resize_height > 0:
             filters.append(f"scale={job.resize_width}:{job.resize_height}")
@@ -75,9 +73,11 @@ class ExportPipeline:
             "-i",
             job.source_video_path,
             "-t",
-            f"{valid_duration:.6f}",
+            f"{job.duration_seconds:.6f}",
             "-vf",
             vf,
+            "-r",
+            str(output_fps),
             "-c:v",
             "libx264",
             "-c:a",
