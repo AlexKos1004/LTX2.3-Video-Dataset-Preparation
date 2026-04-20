@@ -1,0 +1,7 @@
+PySide6
+pytest
+numpy
+Pillow
+onnxruntime
+transformers
+torch
