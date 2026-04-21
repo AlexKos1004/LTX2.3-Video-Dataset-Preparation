@@ -707,6 +707,7 @@ class MainWindow(QMainWindow):
             runtime.asset.current_crop.height = video_h
         self._sync_resize_and_crop(crop_w, crop_h, recenter=False)
         self._sync_crop_from_preview()
+        self._sync_all_video_clips_to_current_settings()
         self._update_timeline_resolution_warnings(log_new=log_warnings)
         self._validate_state()
 
@@ -749,27 +750,44 @@ class MainWindow(QMainWindow):
         crop_w, crop_h = size_data
         self._sync_resize_and_crop(crop_w, crop_h, recenter=False)
         self._sync_crop_from_preview()
+        self._sync_all_video_clips_to_current_settings()
         self._validate_state()
+
+    @staticmethod
+    def _compute_working_size(
+        source_width: int,
+        source_height: int,
+        crop_w: int,
+        crop_h: int,
+        selected_percent: int,
+    ) -> tuple[int, int, int]:
+        min_ratio = max(crop_w / source_width, crop_h / source_height)
+        min_percent = max(1, math.ceil(min_ratio * 100))
+        effective_percent = max(selected_percent, min_percent)
+        if effective_percent > 100:
+            effective_percent = 100
+        working_w = max(32, (int(source_width * effective_percent / 100) // 32) * 32)
+        working_h = max(32, (int(source_height * effective_percent / 100) // 32) * 32)
+        working_w = max(crop_w, min(source_width, working_w))
+        working_h = max(crop_h, min(source_height, working_h))
+        return effective_percent, working_w, working_h
 
     def _sync_resize_and_crop(self, crop_w: int, crop_h: int, recenter: bool) -> None:
         metadata = self._current_metadata()
         if not metadata:
             return
-        min_ratio = max(crop_w / metadata.width, crop_h / metadata.height)
-        min_percent = max(1, math.ceil(min_ratio * 100))
         selected_percent = self.resize_percent_spin.value()
-        effective_percent = max(selected_percent, min_percent)
-        if effective_percent > 100:
-            effective_percent = 100
+        effective_percent, working_w, working_h = self._compute_working_size(
+            source_width=metadata.width,
+            source_height=metadata.height,
+            crop_w=crop_w,
+            crop_h=crop_h,
+            selected_percent=selected_percent,
+        )
         if effective_percent != selected_percent:
             self.resize_percent_spin.blockSignals(True)
             self.resize_percent_spin.setValue(effective_percent)
             self.resize_percent_spin.blockSignals(False)
-
-        working_w = max(32, (int(metadata.width * effective_percent / 100) // 32) * 32)
-        working_h = max(32, (int(metadata.height * effective_percent / 100) // 32) * 32)
-        working_w = max(crop_w, min(metadata.width, working_w))
-        working_h = max(crop_h, min(metadata.height, working_h))
         self.current_working_width = working_w
         self.current_working_height = working_h
         self.resize_info_label.setText(
@@ -795,6 +813,7 @@ class MainWindow(QMainWindow):
         runtime = self._current_runtime()
         if runtime:
             runtime.asset.current_crop = CropRect(x=x, y=y, width=w, height=h)
+        self._sync_all_video_clips_to_current_settings()
         self._validate_state()
 
     def _sync_crop_from_preview(self) -> None:
@@ -803,6 +822,46 @@ class MainWindow(QMainWindow):
         self.crop_y.setValue(y)
         self.crop_w.setValue(w)
         self.crop_h.setValue(h)
+
+    def _sync_all_video_clips_to_current_settings(self) -> None:
+        active_runtime = self._current_runtime()
+        if not active_runtime:
+            return
+        size_data = self.output_size_combo.currentData()
+        if not size_data:
+            return
+        active_crop_x, active_crop_y, _active_crop_w, _active_crop_h = self.preview_player.current_crop_rect()
+        base_w, base_h = self._resolution_dims_from_key(self.global_selected_resolution)
+        selected_percent = int(self.resize_percent_spin.value())
+
+        for runtime in self.video_runtimes:
+            target_w, target_h = self._resolution_for_metadata(base_w, base_h, runtime.metadata)
+            effective_percent, working_w, working_h = self._compute_working_size(
+                source_width=runtime.metadata.width,
+                source_height=runtime.metadata.height,
+                crop_w=target_w,
+                crop_h=target_h,
+                selected_percent=selected_percent,
+            )
+            max_x = max(0, working_w - target_w)
+            max_y = max(0, working_h - target_h)
+            crop_x = max(0, min(active_crop_x, max_x))
+            crop_y = max(0, min(active_crop_y, max_y))
+
+            runtime.asset.current_resize_percent = effective_percent
+            runtime.asset.current_crop = CropRect(
+                x=crop_x,
+                y=crop_y,
+                width=target_w,
+                height=target_h,
+            )
+            for clip in runtime.asset.clips:
+                clip.target_width = int(target_w)
+                clip.target_height = int(target_h)
+                clip.crop = CropRect(x=crop_x, y=crop_y, width=target_w, height=target_h)
+                clip.resize_percent = effective_percent
+                clip.resize_width = working_w
+                clip.resize_height = working_h
 
     def _add_clip_from_playhead(self, video_index: int, duration_seconds: int) -> None:
         self._set_active_video_index(video_index)
@@ -1160,6 +1219,7 @@ class MainWindow(QMainWindow):
             dialog.output_folder_edit.setText(folder)
 
     def _build_export_jobs(self, forced_fps: int | None = None) -> list[ExportRequest]:
+        self._sync_all_video_clips_to_current_settings()
         output_folder = self.output_folder_path
         captions_mode = self.captions_mode
         all_clips = [clip for runtime in self.video_runtimes for clip in runtime.asset.clips]

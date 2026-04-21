@@ -43,7 +43,7 @@ class ExportDialog(QDialog):
                 break
 
         self.frames_combo = QComboBox(self)
-        for fps in (9, 17, 25):
+        for fps in (8, 16, 24):
             self.frames_combo.addItem(str(fps), userData=fps)
         self.frames_combo.setCurrentIndex(1)
         self.frames_example_label = QLabel("", self)
@@ -56,7 +56,7 @@ class ExportDialog(QDialog):
         form = QFormLayout()
         form.addRow("Output folder:", folder_row)
         form.addRow("Captions location:", self.captions_location_combo)
-        form.addRow("Frames per second (8n+1):", self.frames_combo)
+        form.addRow("Frames per second (8n):", self.frames_combo)
         form.addRow("Example for 5s clip:", self.frames_example_label)
 
         form_container = QWidget(self)
@@ -91,7 +91,7 @@ class ExportDialog(QDialog):
         try:
             return int(self.frames_combo.currentText().strip())
         except Exception:
-            return 17
+            return 16
 
     def _update_frames_example_label(self) -> None:
         fps = self.selected_fps()
