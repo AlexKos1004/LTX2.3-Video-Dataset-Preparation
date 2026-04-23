@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -369,6 +369,8 @@ class TimelineWidget(QWidget):
         if self._rows:
             self.set_active_video_index(0)
         self._update_track_width()
+        # Re-run after Qt finishes row layout, so new tracks use final viewport width.
+        QTimer.singleShot(0, self._update_track_width)
 
     def set_video_clips(self, video_index: int, clips: list[TimelineClip]) -> None:
         row = self._row_at(video_index)
@@ -431,6 +433,12 @@ class TimelineWidget(QWidget):
     def active_video_index(self) -> int:
         return self._active_video_index
 
+    def selected_clip_index(self, video_index: int) -> int:
+        row = self._row_at(video_index)
+        if row:
+            return row.track.selected_index()
+        return -1
+
     def _emit_add_request(self) -> None:
         if self._active_video_index >= 0:
             self.add_clip_requested.emit(self._active_video_index, self.selected_duration())
@@ -456,6 +464,9 @@ class TimelineWidget(QWidget):
         for row in self._rows:
             watched_items.add(row.track_scroll.viewport())
             watched_items.add(row.track)
+        if event.type() == QEvent.Type.Resize and watched in watched_items:
+            self._update_track_width()
+            return False
         if event.type() == QEvent.Type.Wheel and watched in watched_items:
             delta = event.angleDelta().y()
             if delta == 0:

@@ -672,9 +672,14 @@ class MainWindow(QMainWindow):
                 )
             )
             self.resize_percent_spin.blockSignals(False)
-            if runtime.asset.current_crop.width > 0 and runtime.asset.current_crop.height > 0:
-                self.preview_player.set_crop_position(runtime.asset.current_crop.x, runtime.asset.current_crop.y)
             self._on_output_size_changed(self.output_size_combo.currentIndex(), log_warnings=False)
+            if runtime.asset.current_crop.width > 0 and runtime.asset.current_crop.height > 0:
+                # Restore saved per-video position only after crop size is configured.
+                self.preview_player.set_crop_position(
+                    runtime.asset.current_crop.x,
+                    runtime.asset.current_crop.y,
+                )
+                self._sync_crop_from_preview()
         finally:
             self._applying_video_state = False
 
@@ -813,7 +818,13 @@ class MainWindow(QMainWindow):
         runtime = self._current_runtime()
         if runtime:
             runtime.asset.current_crop = CropRect(x=x, y=y, width=w, height=h)
-        self._sync_all_video_clips_to_current_settings()
+            selected_index = self.timeline_widget.selected_clip_index(self.active_video_index)
+            if 0 <= selected_index < len(runtime.asset.clips):
+                clip = runtime.asset.clips[selected_index]
+                clip.crop = CropRect(x=x, y=y, width=w, height=h)
+                clip.resize_percent = self.resize_percent_spin.value()
+                clip.resize_width = self.current_working_width
+                clip.resize_height = self.current_working_height
         self._validate_state()
 
     def _sync_crop_from_preview(self) -> None:
@@ -830,7 +841,6 @@ class MainWindow(QMainWindow):
         size_data = self.output_size_combo.currentData()
         if not size_data:
             return
-        active_crop_x, active_crop_y, _active_crop_w, _active_crop_h = self.preview_player.current_crop_rect()
         base_w, base_h = self._resolution_dims_from_key(self.global_selected_resolution)
         selected_percent = int(self.resize_percent_spin.value())
 
@@ -845,20 +855,27 @@ class MainWindow(QMainWindow):
             )
             max_x = max(0, working_w - target_w)
             max_y = max(0, working_h - target_h)
-            crop_x = max(0, min(active_crop_x, max_x))
-            crop_y = max(0, min(active_crop_y, max_y))
+            current_crop_x = max(0, min(int(runtime.asset.current_crop.x), max_x))
+            current_crop_y = max(0, min(int(runtime.asset.current_crop.y), max_y))
 
             runtime.asset.current_resize_percent = effective_percent
             runtime.asset.current_crop = CropRect(
-                x=crop_x,
-                y=crop_y,
+                x=current_crop_x,
+                y=current_crop_y,
                 width=target_w,
                 height=target_h,
             )
             for clip in runtime.asset.clips:
+                clip_crop_x = max(0, min(int(clip.crop.x), max_x))
+                clip_crop_y = max(0, min(int(clip.crop.y), max_y))
                 clip.target_width = int(target_w)
                 clip.target_height = int(target_h)
-                clip.crop = CropRect(x=crop_x, y=crop_y, width=target_w, height=target_h)
+                clip.crop = CropRect(
+                    x=clip_crop_x,
+                    y=clip_crop_y,
+                    width=target_w,
+                    height=target_h,
+                )
                 clip.resize_percent = effective_percent
                 clip.resize_width = working_w
                 clip.resize_height = working_h
@@ -1006,6 +1023,17 @@ class MainWindow(QMainWindow):
         self._set_active_video_index(video_index)
         video = self._current_video()
         if video and 0 <= index < len(video.clips):
+            clip = video.clips[index]
+            self.preview_player.set_crop_position(clip.crop.x, clip.crop.y)
+            runtime = self._current_runtime()
+            if runtime:
+                runtime.asset.current_crop = CropRect(
+                    x=clip.crop.x,
+                    y=clip.crop.y,
+                    width=clip.crop.width,
+                    height=clip.crop.height,
+                )
+            self._sync_crop_from_preview()
             self._on_timeline_seek_requested(video_index, video.clips[index].start_seconds)
 
     def _on_timeline_clip_moved(self, video_index: int, index: int, new_start_seconds: float) -> None:
