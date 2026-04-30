@@ -672,7 +672,11 @@ class MainWindow(QMainWindow):
                 )
             )
             self.resize_percent_spin.blockSignals(False)
-            self._on_output_size_changed(self.output_size_combo.currentIndex(), log_warnings=False)
+            self._on_output_size_changed(
+                self.output_size_combo.currentIndex(),
+                log_warnings=False,
+                sync_all_videos=False,
+            )
             if runtime.asset.current_crop.width > 0 and runtime.asset.current_crop.height > 0:
                 # Restore saved per-video position only after crop size is configured.
                 self.preview_player.set_crop_position(
@@ -694,7 +698,12 @@ class MainWindow(QMainWindow):
                 self.timeline_widget.set_video_preview_image(self.active_video_index, poster_frame)
         self._refresh_clip_table()
 
-    def _on_output_size_changed(self, _index: int, log_warnings: bool = True) -> None:
+    def _on_output_size_changed(
+        self,
+        _index: int,
+        log_warnings: bool = True,
+        sync_all_videos: bool = True,
+    ) -> None:
         metadata = self._current_metadata()
         if not metadata:
             return
@@ -712,7 +721,8 @@ class MainWindow(QMainWindow):
             runtime.asset.current_crop.height = video_h
         self._sync_resize_and_crop(crop_w, crop_h, recenter=False)
         self._sync_crop_from_preview()
-        self._sync_all_video_clips_to_current_settings()
+        if sync_all_videos:
+            self._sync_all_video_clips_to_current_settings()
         self._update_timeline_resolution_warnings(log_new=log_warnings)
         self._validate_state()
 
